@@ -1,0 +1,72 @@
+name: vulgatizer
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+  vulgatizer:
+    if: "contains(github.event.head_commit.message, 'Create common spell')"
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.8"
+        
+    - name: Install dependencies
+      run: |
+        pip install -U pip
+        pip install python-dateutil
+        pip install git+https://github.com/OpenPecha/CommonSpell.git
+    - name: Create vulgate text
+      run: |
+        import shutil
+        from openpecha.core.ids import get_open_pecha_id
+        from openpecha.core.pecha import OpenPechaFS
+        from pathlib import Path
+        from CommonSpell.plain_text import PlainTextCommonSpeller
+
+        def get_base_text(opf):
+            base_text = []
+            for base_id, text in opf.bases.items():
+                base_text.append(text)
+            return '\n'.join(base_text)
+
+        def run_common_speller(version_dir):
+            pecha_id = get_open_pecha_id()
+            common_spell_opf_path = Path(f'./common_spell_opf/{pecha_id}.opf')
+            try:
+                witness_paths = list(version_dir.iterdir())
+            except:
+                print("witness directory doesn't exist")
+                return None
+            witness_paths.sort()
+            op_output = OpenPechaFS(common_spell_opf_path)
+            common_speller = PlainTextCommonSpeller(op_output)
+            for witness_path in witness_paths:
+                if witness_path.suffix == '.txt':
+                  common_speller.add_witness(witness_path)
+            common_spell_opf = common_speller.create_vulgate()
+            common_spell_text = get_base_text(common_spell_opf)
+            shutil.rmtree(common_spell_opf_path)
+            shutil.rmtree(Path('./common_spell_opf'))
+            return common_spell_text
+
+        version_dir = Path('./versions')
+        common_spell_text = run_common_speller(version_dir)
+        common_spell_dir = Path('./common_spell')
+        common_spell_dir.mkdir(exist_ok=True)
+        (common_spell_dir / "common_spell.txt").write_text(common_spell_text)
+      shell: python
+
+    - name: Git Auto Commit
+      uses: stefanzweifel/git-auto-commit-action@v4.16.0
+      with:
+        commit_message: Added or updated review dir
